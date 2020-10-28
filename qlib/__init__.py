@@ -47,7 +47,7 @@ def init(default_conf="client", **kwargs):
     C.set_region(kwargs.get("region", C["region"] if "region" in C else REG_CN))
     C.resolve_path()
 
-    if not (C["expression_cache"] is None and C["dataset_cache"] is None):
+    if not (C["expression_cache"] is None and C["dataset_cache"] is None) and C.is_local_provider:
         # check redis
         if not can_use_cache():
             LOG.warning(

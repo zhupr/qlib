@@ -226,6 +226,10 @@ class QlibConfig(Config):
         else:
             raise NotImplementedError(f"This type of uri is not supported")
 
+    @property
+    def is_local_provider(self):
+        return self["provider"] == "LocalProvider"
+
 
 # global config
 C = QlibConfig(_default_config)

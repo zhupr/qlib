@@ -385,11 +385,12 @@ class DiskExpressionCache(ExpressionCache):
 
     def __init__(self, provider, **kwargs):
         super(DiskExpressionCache, self).__init__(provider)
-        self.r = get_redis_connection()
         # remote==True means client is using this module, writing behaviour will not be allowed.
         self.remote = kwargs.get("remote", False)
         self.expr_cache_path = os.path.join(C.get_data_path(), C.features_cache_dir_name)
-        os.makedirs(self.expr_cache_path, exist_ok=True)
+        if not self.remote:
+            self.r = get_redis_connection()
+            os.makedirs(self.expr_cache_path, exist_ok=True)
 
     def _uri(self, instrument, field, start_time, end_time, freq):
         field = remove_fields_space(field)
@@ -445,7 +446,7 @@ class DiskExpressionCache(ExpressionCache):
                 # generate expression cache if the feature is not a Feature
                 # instance
                 series = self.provider.expression(instrument, field, _calendar[0], _calendar[-1], freq)
-                if not series.empty:
+                if not (self.remote or series.empty):
                     # This expresion is empty, we don't generate any cache for it.
                     with CacheUtils.writer_lock(self.r, "expression-%s" % _cache_uri):
                         self.gen_expression_cache(
@@ -557,10 +558,11 @@ class DiskDatasetCache(DatasetCache):
 
     def __init__(self, provider, **kwargs):
         super(DiskDatasetCache, self).__init__(provider)
-        self.r = get_redis_connection()
         self.remote = kwargs.get("remote", False)
         self.dtst_cache_path = os.path.join(C.get_data_path(), C.dataset_cache_dir_name)
-        os.makedirs(self.dtst_cache_path, exist_ok=True)
+        if not self.remote:
+            os.makedirs(self.dtst_cache_path, exist_ok=True)
+            self.r = get_redis_connection()
 
     @staticmethod
     def _uri(instruments, fields, start_time, end_time, freq, disk_cache=1, **kwargs):
@@ -625,15 +627,18 @@ class DiskDatasetCache(DatasetCache):
         if self.check_cache_exists(cache_path):
             if disk_cache == 1:
                 # use cache
-                with CacheUtils.reader_lock(self.r, "dataset-%s" % _cache_uri):
-                    CacheUtils.visit(cache_path)
+                if not self.remote:
+                    with CacheUtils.reader_lock(self.r, "dataset-%s" % _cache_uri):
+                        CacheUtils.visit(cache_path)
+                        features = self.read_data_from_cache(cache_path, start_time, end_time, fields)
+                else:
                     features = self.read_data_from_cache(cache_path, start_time, end_time, fields)
             elif disk_cache == 2:
                 gen_flag = True
         else:
             gen_flag = True
 
-        if gen_flag:
+        if gen_flag and not self.remote:
             # cache unavailable, generate the cache
             with CacheUtils.writer_lock(self.r, "dataset-%s" % _cache_uri):
                 features = self.gen_dataset_cache(
