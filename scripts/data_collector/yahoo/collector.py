@@ -18,6 +18,7 @@ from tqdm import tqdm
 from loguru import logger
 from yahooquery import Ticker
 from dateutil.tz import tzlocal
+from qlib.utils import code_to_fname
 
 CUR_DIR = Path(__file__).resolve().parent
 sys.path.append(str(CUR_DIR.parent.parent))
@@ -350,7 +351,7 @@ class YahooCollectorUS(YahooCollector):
         pass
 
     def normalize_symbol(self, symbol):
-        return symbol.upper()
+        return code_to_fname(symbol).upper()
 
     @property
     def _timezone(self):

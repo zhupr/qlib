@@ -1,16 +1,22 @@
 #  Copyright (c) Microsoft Corporation.
 #  Licensed under the MIT License.
 
+import re
+import qlib
 import fire
+import shutil
 import zipfile
 import requests
 from tqdm import tqdm
 from pathlib import Path
 from loguru import logger
+from packaging import version as p_version
+from packaging.specifiers import SpecifierSet
 
 
 class GetData:
     REMOTE_URL = "http://fintech.msra.cn/stock_data/downloads"
+    QLIB_DATA_NAME = "{dataset_name}_{region}_{interval}_{qlib_version}_{data_version}.zip"
 
     def __init__(self, delete_zip_file=False):
         """
@@ -22,7 +28,7 @@ class GetData:
         """
         self.delete_zip_file = delete_zip_file
 
-    def _download_data(self, file_name: str, target_dir: [Path, str]):
+    def _download_data(self, file_name: str, target_dir: [Path, str], delete_old: bool = True):
         target_dir = Path(target_dir).expanduser()
         target_dir.mkdir(exist_ok=True, parents=True)
 
@@ -44,19 +50,35 @@ class GetData:
                     fp.write(chuck)
                     p_bar.update(chuck_size)
 
-        self._unzip(target_path, target_dir)
+        self._unzip(target_path, target_dir, delete_old)
         if self.delete_zip_file:
             target_path.unlike()
 
     @staticmethod
-    def _unzip(file_path: Path, target_dir: Path):
+    def _unzip(file_path: Path, target_dir: Path, delete_old: bool = True):
         logger.info(f"{file_path} unzipping......")
+        if delete_old:
+            logger.warning(f"will delete the old qlib data directory(features, instruments, calendars): {target_dir}")
         with zipfile.ZipFile(str(file_path.resolve()), "r") as zp:
             for _file in tqdm(zp.namelist()):
                 zp.extract(_file, str(target_dir.resolve()))
 
+    @staticmethod
+    def _delete_qlib_data(file_dir: Path):
+        logger.info(f"delete {file_dir}")
+        for _name in ["features", "calendars", "instruments"]:
+            _p = file_dir.joinpath(_name)
+            if _p.exists():
+                shutil.rmtree(str(_p.resolve()))
+
     def qlib_data(
-        self, name="qlib_data", target_dir="~/.qlib/qlib_data/cn_data", version="latest", interval="1d", region="cn"
+        self,
+        name="qlib_data",
+        target_dir="~/.qlib/qlib_data/cn_data",
+        version="latest",
+        interval="1d",
+        region="cn",
+        delete_old=True,
     ):
         """download cn qlib data from remote
 
@@ -72,6 +94,8 @@ class GetData:
             data freq, value from [1d], by default 1d
         region: str
             data region, value from [cn, us], by default cn
+        delete_old: bool
+            delete an existing directory, by default True
 
         Examples
         ---------
@@ -79,8 +103,19 @@ class GetData:
         -------
 
         """
-        file_name = f"{name}_{region.lower()}_{interval.lower()}_{version}.zip"
-        self._download_data(file_name.lower(), target_dir)
+        _version = re.search(r"(\d+)(.)(\d+)(.)(\d+)", qlib.__version__)[0]
+        if p_version.parse(_version) in SpecifierSet("<=0.6.1"):
+            qlib_version = "0.6.1"
+        else:
+            qlib_version = "latest"
+        file_name = self.QLIB_DATA_NAME.format(
+            dataset_name=name,
+            region=region.lower(),
+            interval=interval.lower(),
+            qlib_version=qlib_version,
+            data_version=version,
+        )
+        self._download_data(file_name.lower(), target_dir, delete_old)
 
     def csv_data_cn(self, target_dir="~/.qlib/csv_data/cn_data"):
         """download cn csv data from remote
